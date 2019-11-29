@@ -1,0 +1,20 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: application-ingress
+  namespace: voting
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: <prefix>.devops.senacor.com
+      http:
+        paths:
+          - backend:
+              serviceName: frontend
+              servicePort: 80
+  tls:
+    - hosts:
+        - <prefix>.devops.senacor.com
+      secretName: letsencrypt-production

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>title</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="jquery-3.4.1.min.js"></script>
+    <script language="JavaScript">
+        $(document).ready(function () {
+            $.get("/vote", function (data) {  
+                renderData(data);
+            });
+
+            $("button").click(function () {
+                var vote = { 
+                    vote: $('#' + this.id).html() 
+                };
+                $.post("/vote", vote, function (data) {
+                    renderData(data);
+                });
+            });
+        });
+            
+        function renderData(data) {
+            var result = Object.keys(data)[0] + " - " + data[Object.keys(data)[0]] + " | " + Object.keys(data)[1] + " - " + data[Object.keys(data)[1]]
+            $('#results').html(result);
+            $('#vote-button-1').html(Object.keys(data)[0]);
+            $('#vote-button-2').html(Object.keys(data)[1]);
+        }
+    </script>
+</head>
+
+<body>
+    <div id="container">
+        <div id="logo">Vote!</div>
+            <div id="form">
+                <button id="vote-button-1" name="vote" class="button button1">CATS</button>
+                <button id="vote-button-2" name="vote" class="button button2">DOGS</button>
+            </div>
+    </div>
+    <div id="results"></div>
+    </div>
+</body>
+
+</html>

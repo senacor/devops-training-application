@@ -1,0 +1,181 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $CI_ENVIRONMENT_SLUG
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: $CI_ENVIRONMENT_SLUG
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          # TODO: insert your own repositoryUri followed by $CI_COMMIT_SHORT_SHA
+          image: $REPOSITORY_URL:$CI_COMMIT_SHORT_SHA
+          resources:
+            limits:
+              memory: '128Mi'
+              cpu: '500m'
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVER_PORT
+              value: '8080'
+            - name: REDIS_SERVER
+              value: 'redis.$CI_ENVIRONMENT_SLUG.svc.cluster.local'
+            - name: REDIS_PORT
+              value: '6379'
+            - name: VOTE_VALUE_1
+              value: 'CATS'
+            - name: VOTE_VALUE_2
+              value: 'DOGS'
+          imagePullPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: $CI_ENVIRONMENT_SLUG
+spec:
+  selector:
+    app: frontend
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: redis-config
+  namespace: $CI_ENVIRONMENT_SLUG
+data:
+  redis.conf: |
+    maxmemory 2mb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: $CI_ENVIRONMENT_SLUG
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis
+          resources:
+            limits:
+              memory: '128Mi'
+              cpu: '500m'
+          ports:
+            - containerPort: 6379
+          command:
+            - redis-server
+            - "/redis-master/redis.conf"
+          volumeMounts:
+            - mountPath: /redis-master
+              name: config
+        - name: redis-exporter
+          image: oliver006/redis_exporter:latest
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+          ports:
+            - containerPort: 9121
+          env: 
+            - name: REDIS_ADDR
+              value: redis.$CI_ENVIRONMENT_SLUG.svc.cluster.local:6379
+      volumes:
+        - name: config
+          configMap:
+            name: redis-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: $CI_ENVIRONMENT_SLUG
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-monitor-svc
+  namespace: $CI_ENVIRONMENT_SLUG
+  labels:
+    app: redis
+    k8s-app: redis
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: "9121"
+spec:
+  ports:
+  - name: redis-metrics
+    port: 9121
+    targetPort: 9121
+    protocol: TCP
+  selector:
+    app: redis
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: application-ingress
+  namespace: $CI_ENVIRONMENT_SLUG
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: $CI_ENVIRONMENT_SLUG.$PREFIX.devops.senacor.com
+      http:
+        paths:
+          - backend:
+              serviceName: frontend
+              servicePort: 80
+  tls:
+    - hosts:
+        - $CI_ENVIRONMENT_SLUG.$PREFIX.devops.senacor.com
+      secretName: letsencrypt-production
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis-filler
+  namespace: $CI_ENVIRONMENT_SLUG
+  labels:
+    name: redis-filler
+spec:
+  containers:
+  - name: redis-filler
+    image: redis
+    resources:
+      limits:
+        memory: "128Mi"
+        cpu: "100m"
+    command: ["/bin/bash"]
+    args: ["-c", 'for((i=1;i>0;i+=1)); do redis-cli -h redis.$CI_ENVIRONMENT_SLUG.svc.cluster.local -p 6379 SET "Key $i" "Value $i" && sleep 0.01; done']
